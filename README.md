@@ -122,7 +122,7 @@ You should end up with something like this:
     tracker = https://bemaniso.ws:34443/
     api = https://bemaniso.ws
     mode = both
-    source = OPS
+    source = SOWS
 
 Press `esc`and type `:wq` to save and quit.   
 Alright! Now you're ready to use sowsbetter.
