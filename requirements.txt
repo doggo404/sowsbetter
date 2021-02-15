@@ -1,0 +1,2 @@
+mutagen>=1.20
+MechanicalSoup>=0.12.0

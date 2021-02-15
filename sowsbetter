@@ -1,0 +1,328 @@
+#!/usr/bin/env python3
+import configparser
+import argparse
+import pickle
+import os
+import shutil
+import sys
+import tempfile
+import traceback
+from distutils.version import StrictVersion
+from urllib.parse import urlparse, parse_qsl
+from multiprocessing import cpu_count
+
+import tagging
+import transcode
+import whatapi
+from _version import __version__
+
+if sys.version_info < (3, 6, 0):
+    raise Exception("Requires Python 3.6.0 or newer")
+
+def banner():
+    return "Created with Sowsbetter (https://dev.s-ul.net/Doggo404/sowsbetter). Maintained by Doggo404\n" \
+           "This transcoding was done by an autonomous system".format(__version__)
+
+def create_description(torrent, flac_dir, format, permalink):
+    # Create an example command to document the transcode process.
+    cmds = transcode.transcode_commands(format,
+                                        transcode.needs_resampling(flac_dir),
+                                        transcode.resample_rate(flac_dir),
+            'input.flac', 'output' + transcode.encoders[format]['ext'])
+
+    description = [
+        'Transcode of [url={0}]{0}[/url]'.format(permalink),
+        '',
+        'Transcode process:',
+        '',
+        '[code]{0}[/code]'.format(' | '.join(cmds)),
+        '',
+        banner()
+        ]
+    return description
+
+def formats_needed(group, torrent, supported_formats):
+    same_group = lambda t: t['media'] == torrent['media'] and\
+                           t['remasterYear'] == torrent['remasterYear'] and\
+                           t['remasterTitle'] == torrent['remasterTitle'] and\
+                           t['remasterRecordLabel'] == torrent['remasterRecordLabel'] and\
+                           t['remasterCatalogueNumber'] == torrent['remasterCatalogueNumber']
+
+    others = filter(same_group, group['torrents'])
+    current_formats = set((t['format'], t['encoding']) for t in others)
+    missing_formats = [format for format, details in [(f, whatapi.formats[f]) for f in supported_formats]\
+                           if (details['format'], details['encoding']) not in current_formats]
+    allowed_formats = whatapi.allowed_transcodes(torrent)
+    return [format for format in missing_formats if format in allowed_formats]
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter, prog='sowsbetter')
+    parser.add_argument('release_urls', nargs='*', help='the URL where the release is located')
+    parser.add_argument('-s', '--single', action='store_true', help='only add one format per release (useful for getting unique groups)')
+    parser.add_argument('-j', '--threads', type=int, help='number of threads to use when transcoding',
+            default=max(cpu_count() - 1, 1))
+    parser.add_argument('--config', help='the location of the configuration file', \
+            default=os.path.expanduser('~/.sowsbetter/config'))
+    parser.add_argument('--cache', help='the location of the cache', \
+            default=os.path.expanduser('~/.sowsbetter/cache'))
+    parser.add_argument('-U', '--no-upload', action='store_true', help='don\'t upload new torrents (in case you want to do it manually)')
+    parser.add_argument('-E', '--no-24bit-edit', action='store_true', help='don\'t try to edit 24-bit torrents mistakenly labeled as 16-bit')
+    parser.add_argument('--version', action='version', version='%(prog)s ' + __version__)
+    parser.add_argument('-m', '--mode', help='mode to search for transcode candidates; snatched, uploaded, both, seeding, or all')
+    parser.add_argument('-S', '--skip', action='store_true', help="treats a torrent as already processed")
+    parser.add_argument('-t', '--totp', help="time based one time password for 2FA", default=None)
+    parser.add_argument('-o', '--source', help="the value to put in the source flag in created torrents")
+
+    args = parser.parse_args()
+
+    config = configparser.ConfigParser(interpolation=None)
+    try:
+        open(args.config)
+        config.read(args.config)
+    except:
+        if not os.path.exists(os.path.dirname(args.config)):
+            os.makedirs(os.path.dirname(args.config))
+        config.add_section('Bemaniso')
+        config.set('Bemaniso', 'username', '')
+        config.set('Bemaniso', 'password', '')
+        config.set('Bemaniso', 'data_dir', '')
+        config.set('Bemaniso', 'output_dir', '')
+        config.set('Bemaniso', 'torrent_dir', '')
+        config.set('Bemaniso', 'formats', 'flac, v0, 320, v2')
+        config.set('Bemaniso', 'media', ', '.join(whatapi.lossless_media))
+        config.set('Bemaniso', '24bit_behaviour','0')
+        config.set('Bemaniso', 'tracker', 'https://bemaniso.ws:34443/')
+        config.set('Bemaniso', 'mode', 'both')
+        config.set('Bemaniso', 'api', 'https://bemaniso.ws')
+        config.set('Bemaniso', 'source', 'SOWS')
+        config.write(open(args.config, 'w'))
+        print("Please edit the configuration file: {0}".format(args.config))
+        sys.exit(2)
+    finally:
+        username = config.get('Bemaniso', 'username')
+        password = config.get('Bemaniso', 'password')
+        do_24_bit = config.get('Bemaniso', '24bit_behaviour')
+        data_dir = [os.path.expanduser(d) for d in config.get('Bemaniso', 'data_dir').split(';')]
+        try:
+            output_dir = os.path.expanduser(config.get('Bemaniso', 'output_dir'))
+        except configparser.NoOptionError:
+            output_dir = None
+        if not output_dir:
+            output_dir = data_dir[0]
+        torrent_dir = os.path.expanduser(config.get('Bemaniso', 'torrent_dir'))
+        supported_formats = [format.strip().upper() for format in config.get('Bemaniso', 'formats').split(',')]
+
+        try:
+            media_config = config.get('Bemaniso', 'media')
+            if not media_config:
+                supported_media = whatapi.lossless_media
+            else:
+                supported_media = set([medium.strip().lower() for medium in media_config.split(',')])
+                if not supported_media.issubset(set(whatapi.lossless_media)):
+                    print('Unsupported media type "{0}", edit your configuration'.format((supported_media - whatapi.lossless_media).pop()))
+                    print("Supported types are: {0}".format(', '.join(whatapi.lossless_media)))
+                    sys.exit(2)
+        except configparser.NoOptionError:
+            supported_media = whatapi.lossless_media
+
+        if not config.has_option('Bemaniso', 'tracker'):
+            config.set('Bemaniso', 'tracker', 'https://Bemaniso.ws:34443/')
+            config.write(open(args.config, 'w'))
+            print("Tracker added to config file")
+        if not config.has_option('Bemaniso', 'mode'):
+            config.set('Bemaniso', 'mode', 'both')
+            config.write(open(args.config, 'w'))
+            print("Candidate mode set to both")
+        if not config.has_option('Bemaniso', 'api'):
+            config.set('Bemaniso', 'api', 'https://bemaniso.ws')
+            config.write(open(args.config, 'w'))
+            print("API endpoint set to https://bemaniso.ws")
+
+        version_path = os.path.join(os.path.expanduser('~'), '.sowsbetter', '.version')
+        if os.path.isfile(version_path):
+            with open(version_path, 'r') as f:
+                version = f.read()
+        else:
+            version = "1.0.0"
+
+        if StrictVersion(version) < StrictVersion(__version__):
+            updated = False
+            if StrictVersion(version) < StrictVersion('2.0.1'):
+                updated = True
+                config.set('Bemaniso', 'source', 'SOWS')
+
+            if updated:
+                config.write(open(args.config, 'w'))
+                print("Migrated version {0} config".format(version))
+
+            with open(version_path, 'w') as f:
+                f.write(__version__)
+
+        tracker = config.get('Bemaniso', 'tracker')
+        mode  = config.get('Bemaniso', 'mode')
+        endpoint = config.get('Bemaniso', 'api')
+        source = None
+        if config.has_option('Bemaniso', 'source'):
+            source = config.get('Bemaniso', 'source')
+
+    upload_torrent = not args.no_upload
+
+    print("Logging in to Bemaniso Network...")
+    api = whatapi.WhatAPI(username, password, endpoint, args.totp)
+
+    try:
+        seen = pickle.load(open(args.cache, 'rb'))
+    except:
+        seen = set()
+        pickle.dump(seen, open(args.cache, 'wb'))
+
+    if args.skip:
+        skip = [int(query['torrentid']) for query in\
+                [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]]
+        for id in skip:
+            print("Skipping torrent {0}".format(str(id)))
+            seen.add(str(id))
+        pickle.dump(seen, open(args.cache, 'wb'))
+        return
+
+
+
+    print("Searching for transcode candidates...")
+    if args.release_urls:
+        if len(args.release_urls) == 1 and os.path.isfile(args.release_urls[0]):
+            print("You supplied a url list, ignoring your configuration's media types.")
+            with open(args.release_urls[0]) as f:
+                candidates = [(int(query['id']), int(query['torrentid'])) for query in\
+                        [dict(parse_qsl(urlparse(url).query)) for url in f]]
+        else:
+            print("You supplied one or more release URLs, ignoring your configuration's media types.")
+            candidates = [(int(query['id']), int(query['torrentid'])) for query in\
+                    [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]]
+    else:
+        if args.mode is None:
+            if mode == 'none':
+                print("No urls provided and scraping is disabled")
+            else:
+                candidates = api.get_candidates(mode, skip=seen, media=supported_media)
+        elif args.mode == 'none':
+            print("No urls provided and scraping is disabled")
+        else:
+            candidates = api.get_candidates(args.mode, skip=seen, media=supported_media)
+        #candidates = api.snatched(skip=seen, media=supported_media)
+
+    for groupid, torrentid in candidates:
+        group = api.request('torrentgroup', id=groupid)
+        torrent = [t for t in group['torrents'] if t['id'] == torrentid][0]
+
+        release = "Release found: {0} ({1})".format(whatapi.unescape(group['group']['name']), group['group']['year'])
+        releaseurl = "Release URL: {0}".format(api.release_url(group, torrent))
+
+        print("")
+        print(release)
+        print(releaseurl)
+
+        if not torrent['filePath']:
+            for d in data_dir:
+                flac_file = os.path.join(d, whatapi.unescape(torrent['fileList']).split('{{{')[0])
+                if not os.path.exists(flac_file):
+                    continue
+                flac_dir = os.path.join(d, "{0} ({1}) [FLAC]".format(
+                    whatapi.unescape(group['group']['name']), group['group']['year']))
+                if not os.path.exists(flac_dir):
+                    os.makedirs(flac_dir)
+                shutil.copy(flac_file, flac_dir)
+                break
+
+            if not os.path.exists(flac_file):
+                print("Path not found - skipping: {0}".format(flac_file))
+                continue
+        else:
+            for d in data_dir:
+                flac_dir = os.path.join(d, whatapi.unescape(torrent['filePath']))
+                if os.path.exists(flac_dir):
+                    break
+
+        #flac_dir = flac_dir.encode(sys.getfilesystemencoding())
+        if int(do_24_bit):
+            try:
+                if transcode.is_24bit(flac_dir) and torrent['encoding'] != '24bit Lossless':
+                    # A lot of people are uploading FLACs from Bandcamp without realizing
+                    # that they're actually 24 bit files (usually 24/44.1). Since we know for
+                    # sure whether the files are 24 bit, we might as well correct the listing
+                    # on the site (and get an extra upload in the process).
+                    if args.no_24bit_edit:
+                        print("Release is actually 24-bit lossless, skipping.")
+                        continue
+                    if int(do_24_bit) == 1:  
+                        confirmation = raw_input("Mark release as 24bit lossless? y/n: ")
+                        if confirmation != 'y':
+                            continue
+                    print("Marking release as 24bit lossless.")
+                    api.set_24bit(torrent)
+                    group = api.request('torrentgroup', id=groupid)
+                    torrent = [t for t in group['torrents'] if t['id'] == torrentid][0]
+            except Exception as e:
+                print("Error: can't edit 24-bit torrent - skipping: {0}".format(e))
+                continue
+
+        if transcode.is_multichannel(flac_dir):
+            print("This is a multichannel release, which is unsupported - skipping")
+            continue
+
+        needed = formats_needed(group, torrent, supported_formats)
+        print("Formats needed: {0}".format(', '.join(needed)))
+
+        if needed:
+            # Before proceeding, do the basic tag checks on the source
+            # files to ensure any uploads won't be reported, but punt
+            # on the tracknumber formatting; problems with tracknumber
+            # may be fixable when the tags are copied.
+            broken_tags = False
+            for flac_file in transcode.locate(flac_dir, transcode.ext_matcher('.flac')):
+                (ok, msg) = tagging.check_tags(flac_file, check_tracknumber_format=False)
+                if not ok:
+                    print("A FLAC file in this release has unacceptable tags - skipping: {0}".format(msg))
+                    print("You might be able to trump it.")
+                    broken_tags = True
+                    break
+            if broken_tags:
+                continue
+
+        for format in needed:
+            if os.path.exists(flac_dir):
+                print("Adding format {0}...".format(format), end=" ")
+                tmpdir = tempfile.mkdtemp()
+                try:
+                    local_output_dir = config.get('Bemaniso', 'output_dir_{}'.format(format))
+                except:
+                    local_output_dir = output_dir
+
+                try:
+                    local_torrent_dir = config.get('Bemaniso', 'torrent_dir_{}'.format(format))
+                except:
+                    local_torrent_dir = torrent_dir
+
+                try:
+                    transcode_dir = transcode.transcode_release(flac_dir, local_output_dir, format, max_threads=args.threads)
+                    new_torrent = transcode.make_torrent(transcode_dir, tmpdir, tracker, api.passkey, source)
+                    if upload_torrent:
+                        permalink = api.permalink(torrent)
+                        description = create_description(torrent, flac_dir, format, permalink)
+                        api.upload(group, torrent, new_torrent, format, description)
+                    shutil.copy(new_torrent, local_torrent_dir)
+                    print("done!")
+                    if args.single: break
+                except Exception as e:
+                    print("Error adding format {0}: {1}".format(format, e))
+                    traceback.print_exc()
+                finally:
+                    shutil.rmtree(tmpdir)
+            else:
+                print("Path not found - skipping: {0}".format(flac_dir))
+                break
+
+        seen.add(str(torrentid))
+        pickle.dump(seen, open(args.cache, 'wb'))
+
+if __name__ == "__main__":
+    main()
