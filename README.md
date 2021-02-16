@@ -188,14 +188,16 @@ consecutive runs due to its caching method.
 Troubleshooting
 ---------------
 If you keep getting errors about incorrect/unacceptable tags, editi tagging.py and replace 
-```if check_tracknumber_format:
+ ``if check_tracknumber_format:
         tracknumber = info['tracknumber'][0]
         if not valid_fractional_tag(tracknumber):
-            return (False, '"%s" has a malformed tracknumber tag ("%s")' % (filename, tracknumber))``` 
-with 
-```#if check_tracknumber_format:
+            return (False, '"%s" has a malformed tracknumber tag ("%s")' % (filename, tracknumber))`` 
+with
+
+
+ ``#if check_tracknumber_format:
         #tracknumber = info['tracknumber'][0]
         #if not valid_fractional_tag(tracknumber):
-            #return (False, '"%s" has a malformed tracknumber tag ("%s")' % (filename, tracknumber))```
+            #return (False, '"%s" has a malformed tracknumber tag ("%s")' % (filename, tracknumber))``
 
 
