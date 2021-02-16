@@ -64,7 +64,7 @@ like this:
     media = sacd, soundboard, web, dvd, cd, dat, vinyl, blu-ray
     24bit_behaviour = 0
     tracker = https://bemaniso.ws:34443/
-    api = https://bemansio.ws
+    api = https://bemaniso.ws
     mode = both
     source = SOWS
 Press `ins` to edit it.
