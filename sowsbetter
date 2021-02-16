@@ -20,7 +20,7 @@ if sys.version_info < (3, 6, 0):
     raise Exception("Requires Python 3.6.0 or newer")
 
 def banner():
-    return "Created with Sowsbetter (https://dev.s-ul.net/Doggo404/sowsbetter). Maintained by Doggo404\n" \
+    return "Created with Sowsbetter version {0} (https://github.com/doggo404/sowsbetter/). Maintained by Doggo404\n" \
            "This transcoding was done by an autonomous system".format(__version__)
 
 def create_description(torrent, flac_dir, format, permalink):
