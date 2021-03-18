@@ -18,7 +18,8 @@ from _version import __version__
 
 if sys.version_info < (3, 6, 0):
     raise Exception("Requires Python 3.6.0 or newer")
-
+    
+#add {0} if you want to state the version, version can be changed in _version.py
 def banner():
     return "Created with [url=https://github.com/doggo404/sowsbetter/]Sowsbetter[/url] Maintained by [user]doggo404[/user]\n" \
            "This transcoding was done by an autonomous system".format(__version__)
