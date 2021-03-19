@@ -8,7 +8,7 @@ def main():
     torrent_hash = argv[5].upper()
 
     # find the hash and set done = true
-    cache = json.load(open('~/.osowsbetter/cache-crawl'))
+    cache = json.load(open('~/.sowsbetter/cache-crawl'))
     for torrent in cache:
         if torrent['hash'] == torrent_hash:
             torrent['done'] = True

@@ -20,7 +20,7 @@ setup(
     name = "sowsbetter",
     description = "Automatically transcode and upload FLACs on bemaniso.ws.",
     version = verstr,
-    url = 'https://dev.s-ul.eu/Doggo404/sowsbetter/',
+    url = 'https://github.com/doggo404/sowsbetter',
     py_modules = [
         '_version',
         'tagging',

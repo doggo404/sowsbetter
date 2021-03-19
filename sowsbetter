@@ -18,10 +18,10 @@ from _version import __version__
 
 if sys.version_info < (3, 6, 0):
     raise Exception("Requires Python 3.6.0 or newer")
-    
+
 #add {0} if you want to state the version, version can be changed in _version.py
 def banner():
-    return "Created with [url=https://github.com/doggo404/sowsbetter/]Sowsbetter[/url] Maintained by [user]doggo404[/user]\n" \
+    return "Created with [url=https://github.com/doggo404/sowsbetter/]Sowsbetter[/url] Maintained by [color=red][user]doggo404[/user][/color].\n" \
            "This transcoding was done by an autonomous system".format(__version__)
 
 def create_description(torrent, flac_dir, format, permalink):
@@ -36,7 +36,7 @@ def create_description(torrent, flac_dir, format, permalink):
         '',
         'Transcode process:',
         '',
-        '[color=green][code]{0}[/code][/color]'.format(' | '.join(cmds)),
+        '[b][color=green][code]{0}[/code][/color][/b]'.format(' | '.join(cmds)),
         '',
         banner()
         ]
@@ -89,9 +89,9 @@ def main():
         config.set('Bemaniso', 'data_dir', '')
         config.set('Bemaniso', 'output_dir', '')
         config.set('Bemaniso', 'torrent_dir', '')
-        config.set('Bemaniso', 'formats', 'flac, v0, 320, v2')
+        config.set('Bemaniso', 'formats', 'flac, v0, 320')
         config.set('Bemaniso', 'media', ', '.join(whatapi.lossless_media))
-        config.set('Bemaniso', '24bit_behaviour','0')
+        config.set('Bemaniso', '24bit_behaviour','1')
         config.set('Bemaniso', 'tracker', 'https://bemaniso.ws:34443/')
         config.set('Bemaniso', 'mode', 'both')
         config.set('Bemaniso', 'api', 'https://bemaniso.ws')
@@ -144,7 +144,7 @@ def main():
             with open(version_path, 'r') as f:
                 version = f.read()
         else:
-            version = "1.0.0"
+            version = "1.0"
 
         if StrictVersion(version) < StrictVersion(__version__):
             updated = False
@@ -254,7 +254,7 @@ def main():
                     if args.no_24bit_edit:
                         print("Release is actually 24-bit lossless, skipping.")
                         continue
-                    if int(do_24_bit) == 1:  
+                    if int(do_24_bit) == 1:
                         confirmation = raw_input("Mark release as 24bit lossless? y/n: ")
                         if confirmation != 'y':
                             continue
