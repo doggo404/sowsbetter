@@ -67,6 +67,7 @@ Open up the file `~/.sowsbetter/config` in vim with `vim ~/.sowsbetter/config` .
     api = https://bemaniso.ws
     mode = both
     source = SOWS
+    
 Press `ins` to edit it.
 `username` and `password` are your bemaniso login credentials. 
 
