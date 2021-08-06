@@ -1,4 +1,4 @@
-# SowsBetter
+
 Introduction
 ------------
 
